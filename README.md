@@ -1,1 +1,2 @@
-# Introduction into data science project - University research trends analysis
+# Estonian Research Trends Analytics Dashboard
+
