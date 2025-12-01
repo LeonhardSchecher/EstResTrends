@@ -1,2 +1,2 @@
-# Estonian Research Trends Analytics Dashboard
+# Estonian Scientific Research Trends
 
