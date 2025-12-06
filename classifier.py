@@ -1,6 +1,10 @@
 import pandas as pd
 from openai import  AzureOpenAI
-from json import dumps, load
+from json import dumps, loads
+
+def get_abstracts(PATH:str):
+    with open(PATH, 'rb') as f:
+        return loads(f.read())
 
 def api_key(path:str) -> str:
     with open(path, 'r') as f:
@@ -21,7 +25,7 @@ def ask_frascati( client:AzureOpenAI, guids:dict):
     message = ""
 
     for n, guid in enumerate(guids.keys()):
-        message += f"{n}\t\"{guids[guid].replace("\n", "")}\"\n"
+        message += f"{n}\t{guids[guid]}\n"
         real_guids[n] = guid
 
     with open("frascati_system_prompt.txt") as f:
@@ -55,13 +59,13 @@ def write_labels(labels:dict):
     
 
 
-def frascatti(limit:int, dt:pd.DataFrame, abstracts:dict):
+def frascati(limit:int, dt:pd.DataFrame, abstracts:dict):
     client = AzureOpenAI(
         api_key=api_key("../api.key"),  
         api_version="2024-12-01-preview",
         azure_endpoint="https://tu-openai-api-management.azure-api.net/oltatkull/openai/deployments/IDS2025-Gross-gpt-4o-mini/chat/completions?api-version=2024-12-01-preview"
     )
-
+    abstracts = get_abstracts("./article_extraction/articles_reduced_clean.jsonl")
     classify = dt[dt["Frascati"].isnull()]
     classify = classify.iloc[:min(limit, classify.shape[0])]
     
@@ -79,7 +83,7 @@ def ask_labels( client:AzureOpenAI, guids:dict):
     message = ""
 
     for n, guid in enumerate(guids.keys()):
-        message += f"{n}\t\"{guids[guid].replace("\n", "")}\"\n"
+        message += f"{n}\t{guids[guid]}\n"
         real_guids[n] = guid
 
     with open("labels_system_prompt.txt") as f:
@@ -99,3 +103,5 @@ def ask_labels( client:AzureOpenAI, guids:dict):
         responce[real_guids[fake_id]] = labels.split(" ")
     
     return responce, chat.usage.total_tokens
+
+frascati(1000, pd.read_json("./etis.json"), None)
