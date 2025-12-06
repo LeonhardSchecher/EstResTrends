@@ -7,6 +7,7 @@ from docx import Document
 from pypdf import PdfReader
 from pypdf.errors import DependencyError, PdfReadError
 
+# python3.11 -m pip install bs4 lxml pypdf python-docx cryptography
 
 # ---------- CONFIG ----------
 MAX_PDF_PAGES = 3          # how many pages to scan from each PDF
