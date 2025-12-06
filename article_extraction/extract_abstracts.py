@@ -9,15 +9,12 @@ from pypdf.errors import DependencyError, PdfReadError
 
 # python3.11 -m pip install bs4 lxml pypdf python-docx cryptography
 
-# ---------- CONFIG ----------
 MAX_PDF_PAGES = 3          # how many pages to scan from each PDF
 FALLBACK_WORDS = 400       # if no clear abstract/intro, take this many words
 INPUT_EXTS = {".pdf", ".docx", ".html", ".htm"}
-
 INPUT_DIR = r"C:\Users\ekkeg\data"      
 OUTPUT_DIR = r"C:\Users\ekkeg\SA_Projekt\EstResTrends\article_output"  
 JSONL_NAME = "articles_reduced.jsonl"           
-# ----------------------------
 
 def extract_abstract_or_intro(text: str) -> str:
     """
@@ -33,7 +30,7 @@ def extract_abstract_or_intro(text: str) -> str:
     # Collapse multiple newlines to help regex
     t = re.sub(r"\n{2,}", "\n\n", t)
 
-    # --- 1. Try ABSTRACT section ---
+    # 1. Try ABSTRACT section
     abstract_pattern = re.compile(
         r"\babstract\b[:.]?\s*(.+?)(?:\n\s*\n|\bintroduction\b)",
         flags=re.IGNORECASE | re.DOTALL,
@@ -42,7 +39,7 @@ def extract_abstract_or_intro(text: str) -> str:
     if m:
         return m.group(1).strip()
 
-    # --- 2. Try INTRODUCTION section ---
+    # 2. Try INTRODUCTION section 
     intro_pattern = re.compile(
         r"\bintroduction\b[:.]?\s*(.+?)(?:\n\s*\n|\bmethods\b|\bmaterials and methods\b|\bresults\b|\bbackground\b)",
         flags=re.IGNORECASE | re.DOTALL,
@@ -51,7 +48,7 @@ def extract_abstract_or_intro(text: str) -> str:
     if m:
         return m.group(1).strip()
 
-    # --- 3. Fallback: first N words ---
+    # 3. Fallback: first N words
     words = t.split()
     return " ".join(words[:FALLBACK_WORDS]).strip()
 
