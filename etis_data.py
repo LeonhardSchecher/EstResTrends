@@ -8,7 +8,6 @@ END_YEAR = "2025"
 
 TAKE = 1000 # take ei tohi olla kindlasti üle 5000
 
-
 # https://andmed.eesti.ee/datasets/eesti-teadusinfosusteemi-avaandmed
 
 def get_count():
