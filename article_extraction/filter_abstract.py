@@ -12,7 +12,7 @@ client = AzureOpenAI(
 )
 
 # ---------- CONFIG ----------
-INPUT_JSONL  = r"article_extraction\articles_reduced_clean.jsonl"
+INPUT_JSONL  = r"article_extraction\ar_clean_rest.jsonl"
 OUTPUT_JSONL = r"article_extraction\articles_filtered.jsonl"
 MODEL_NAME   = "IDS2025-Gross-gpt-4o-mini"
 # ----------------------------
