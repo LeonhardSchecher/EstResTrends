@@ -11,6 +11,21 @@ st.set_page_config(
     layout="wide",
 )
 
+# --- Hide deploy button, hamburger menu and footer ---
+hide_streamlit_style = """
+    <style>
+        /* Hide hamburger menu */
+        #MainMenu {visibility: hidden;}
+
+        /* Hide the 'Deploy' button */
+        .stDeployButton {display: none;}
+
+        /* Hide 'Made with Streamlit' footer */
+        footer {visibility: hidden;}
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 # Global styling: Zilla Slab, white background, black text
 st.markdown(
     """
