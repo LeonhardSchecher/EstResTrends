@@ -1,62 +1,16 @@
-# app.py
-import streamlit as st
-import pandas as pd
+# dash_app.py
+from dash import Dash, dcc, html, Input, Output
 import plotly.express as px
+import pandas as pd
 
 # --------------------------------------------------
-# Page setup
+# Data 
 # --------------------------------------------------
-st.set_page_config(
-    page_title="Project Dashboard",
-    layout="wide",
-)
-
-# --- Hide deploy button, hamburger menu and footer ---
-hide_streamlit_style = """
-    <style>
-        /* Hide hamburger menu */
-        #MainMenu {visibility: hidden;}
-
-        /* Hide the 'Deploy' button */
-        .stDeployButton {display: none;}
-
-        /* Hide 'Made with Streamlit' footer */
-        footer {visibility: hidden;}
-    </style>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-# Global styling: Zilla Slab, white background, black text
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@300;400;500;700&display=swap');
-
-    html, body, [class*="css"]  {
-        font-family: 'Zilla Slab', serif;
-        background-color: white;
-        color: black;
-    }
-
-    h1, h2, h3, h4, h5, h6 {
-        font-family: 'Zilla Slab', serif !important;
-        color: black;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# --------------------------------------------------
-# Example data (replace with your own)
-# --------------------------------------------------
-# You can replace this with: df = pd.read_csv("your_data.csv")
-df = px.data.gapminder()
+df = px.data.gapminder()  
 
 numeric_cols = df.select_dtypes(include="number").columns.tolist()
 categorical_cols = df.select_dtypes(include="object").columns.tolist()
 
-# Helper to build a consistent-looking plot
 def make_plot(data, x_col, y_col, color_col):
     color_arg = None if color_col == "None" else color_col
 
@@ -72,74 +26,218 @@ def make_plot(data, x_col, y_col, color_col):
         font=dict(family="Zilla Slab", color="black"),
         paper_bgcolor="white",
         plot_bgcolor="white",
+        margin=dict(l=40, r=20, t=40, b=40),
     )
     return fig
 
-# --------------------------------------------------
-# Introduction (top section)
-# --------------------------------------------------
-st.title("Project Title")
 
-st.subheader("Introduction")
-st.markdown(
-    """
-    Briefly describe the goal of the project here.
+# --------------------------------------------------
+# Dash app setup
+# --------------------------------------------------
+external_stylesheets = [
+    # Load Zilla Slab font from Google Fonts
+    "https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@300;400;500;700&display=swap"
+]
 
-    Explain what the dataset represents, how it was collected,
-    and what kind of patterns the user can explore in the plots below.
+app = Dash(__name__, external_stylesheets=external_stylesheets)
+app.title = "Project Dashboard"  # tab title
+
+# Small helpers
+def dropdown_options(values):
+    return [{"label": v, "value": v} for v in values]
+
+numeric_options = dropdown_options(numeric_cols)
+color_options = dropdown_options(["None"] + categorical_cols)
+
+# Default dropdown values
+x_default = numeric_cols[0]
+y_default = numeric_cols[1] if len(numeric_cols) > 1 else numeric_cols[0]
+color_default = "None"
+
+# --------------------------------------------------
+# Reusable "plot window" block (layout only)
+# --------------------------------------------------
+def make_plot_window(window_title, prefix):
     """
+    window_title: e.g. "Plot Window 1"
+    prefix: e.g. "w1" (used to create unique component IDs)
+    """
+    return html.Div(
+        className="plot-window",
+        style={
+            "display": "flex",
+            "flexDirection": "row",
+            "alignItems": "stretch",
+            "gap": "24px",
+            "marginBottom": "40px",
+        },
+        children=[
+            # Controls on the left
+            html.Div(
+                className="controls",
+                style={
+                    "width": "25%",
+                    "minWidth": "220px",
+                },
+                children=[
+                    html.H2(
+                        window_title,
+                        style={
+                            "fontFamily": "Zilla Slab, serif",
+                            "marginBottom": "12px",
+                        },
+                    ),
+                    html.H3(
+                        "Controls",
+                        style={
+                            "fontFamily": "Zilla Slab, serif",
+                            "fontSize": "18px",
+                            "marginBottom": "8px",
+                        },
+                    ),
+                    html.Label("X axis"),
+                    dcc.Dropdown(
+                        id=f"{prefix}-x",
+                        options=numeric_options,
+                        value=x_default,
+                        clearable=False,
+                        style={"marginBottom": "12px"},
+                    ),
+                    html.Label("Y axis"),
+                    dcc.Dropdown(
+                        id=f"{prefix}-y",
+                        options=numeric_options,
+                        value=y_default,
+                        clearable=False,
+                        style={"marginBottom": "12px"},
+                    ),
+                    html.Label("Color / group by"),
+                    dcc.Dropdown(
+                        id=f"{prefix}-color",
+                        options=color_options,
+                        value=color_default,
+                        clearable=False,
+                    ),
+                ],
+            ),
+
+            # Plot on the right
+            html.Div(
+                className="plot-area",
+                style={
+                    "flex": "1",
+                },
+                children=[
+                    dcc.Graph(
+                        id=f"{prefix}-graph",
+                        style={
+                            "height": "100%",
+                        },
+                    )
+                ],
+            ),
+        ],
+    )
+
+
+# --------------------------------------------------
+# App layout
+# --------------------------------------------------
+app.layout = html.Div(
+    style={
+        "fontFamily": "Zilla Slab, serif",
+        "backgroundColor": "white",
+        "color": "black",
+        "minHeight": "100vh",
+    },
+    children=[
+        html.Div(
+            style={
+                "maxWidth": "1200px",
+                "margin": "0 auto",
+                "padding": "24px 16px 40px 16px",
+            },
+            children=[
+                # Top intro section
+                html.H1(
+                    "Project Title",
+                    style={
+                        "fontFamily": "Zilla Slab, serif",
+                        "fontWeight": "700",
+                        "marginBottom": "8px",
+                    },
+                ),
+                html.H2(
+                    "Introduction",
+                    style={
+                        "fontFamily": "Zilla Slab, serif",
+                        "fontWeight": "400",
+                        "fontSize": "22px",
+                        "marginBottom": "8px",
+                    },
+                ),
+                html.P(
+                    """
+                    Briefly describe the goal of the project here.
+                    Explain what the dataset represents, how it was collected,
+                    and what kind of patterns the user can explore in the plots below.
+                    """,
+                    style={
+                        "fontSize": "16px",
+                        "lineHeight": "1.5",
+                        "marginBottom": "24px",
+                    },
+                ),
+
+                html.Hr(),
+
+                # Three vertically stacked plot windows
+                make_plot_window("Plot Window 1", "w1"),
+                make_plot_window("Plot Window 2", "w2"),
+                make_plot_window("Plot Window 3", "w3"),
+            ],
+        )
+    ],
 )
 
-st.divider()
 
 # --------------------------------------------------
-# Reusable "plot window" component
+# Callbacks: one per window
 # --------------------------------------------------
-def plot_window(window_title: str, key_prefix: str):
-    st.header(window_title)
+@app.callback(
+    Output("w1-graph", "figure"),
+    Input("w1-x", "value"),
+    Input("w1-y", "value"),
+    Input("w1-color", "value"),
+)
+def update_w1_graph(x_col, y_col, color_col):
+    return make_plot(df, x_col, y_col, color_col)
 
-    controls_col, plot_col = st.columns([1, 3])
 
-    with controls_col:
-        st.subheader("Controls")
+@app.callback(
+    Output("w2-graph", "figure"),
+    Input("w2-x", "value"),
+    Input("w2-y", "value"),
+    Input("w2-color", "value"),
+)
+def update_w2_graph(x_col, y_col, color_col):
+    return make_plot(df, x_col, y_col, color_col)
 
-        # Default values: first numeric column for x,
-        # second numeric column for y (if it exists),
-        # and "None" for color
-        x_idx_default = 0
-        y_idx_default = 1 if len(numeric_cols) > 1 else 0
 
-        x_col = st.selectbox(
-            "X axis",
-            numeric_cols,
-            index=x_idx_default,
-            key=f"{key_prefix}_x",
-        )
-
-        y_col = st.selectbox(
-            "Y axis",
-            numeric_cols,
-            index=y_idx_default,
-            key=f"{key_prefix}_y",
-        )
-
-        color_col = st.selectbox(
-            "Color / group by",
-            ["None"] + categorical_cols,
-            index=0,
-            key=f"{key_prefix}_color",
-        )
-
-    with plot_col:
-        fig = make_plot(df, x_col, y_col, color_col)
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.divider()
+@app.callback(
+    Output("w3-graph", "figure"),
+    Input("w3-x", "value"),
+    Input("w3-y", "value"),
+    Input("w3-color", "value"),
+)
+def update_w3_graph(x_col, y_col, color_col):
+    return make_plot(df, x_col, y_col, color_col)
 
 
 # --------------------------------------------------
-# Three vertically stacked plot windows
+# Entry point
 # --------------------------------------------------
-plot_window("Plot Window 1", key_prefix="w1")
-plot_window("Plot Window 2", key_prefix="w2")
-plot_window("Plot Window 3", key_prefix="w3")
+if __name__ == "__main__":
+    app.run(debug=True) 
+    
+
