@@ -124,7 +124,6 @@ def call_frascati_model(context: str) -> str:
 
     prompt = context
 
-    # Using Responses API instead of chat.completions
     response = client.responses.create(
         model=MODEL_NAME,
         input=[
@@ -135,7 +134,7 @@ def call_frascati_model(context: str) -> str:
         max_output_tokens=256,
     )
 
-    # Concatenate all text output into a single string
+    
     content = response.output_text
     if content not in CODES: return ""
     return content

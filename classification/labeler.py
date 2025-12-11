@@ -4,8 +4,7 @@ from pathlib import Path
 from openai import AzureOpenAI, OpenAI
 import atexit
 
-# ----------------- AUTH / CLIENT SETUP -----------------
-# Adjust this path if your key file is elsewhere
+
 OPENAI_API_KEY = ""
 
 
@@ -14,11 +13,11 @@ client = AzureOpenAI(
 )
 
 
-# ------------------- CONFIG ----------------------------
-INPUT_JSON  = "../etis.json"       # <--- your input .json
+
+INPUT_JSON  = "../etis.json"       #main data file
 OUTPUT_JSON = "keywords.json"
 MODEL_NAME  = "IDS2025-Gross-gpt-4o-mini"
-# -------------------------------------------------------
+
 
 
 INSTRUCTIONS = """
@@ -107,13 +106,12 @@ def build_article_context(article: dict,
 
     context_parts = []
 
-    # 1. Text
     text_field = article.get("Text") or article.get("text")
     if text_field:
         text_field = truncate(str(text_field), max_chars_total)
         return f"Text:\n{text_field}"
 
-    # If there is no Text, we combine other fields gradually.
+    
 
     total_chars = 0
 
@@ -133,45 +131,44 @@ def build_article_context(article: dict,
         total_chars += len(piece)
         return True
 
-    # 2. Abstract in Estonian OR Abstract in English
+    
     abs_et = article.get("Abstract in Estonian") or article.get("abstract_et")
     abs_en = article.get("Abstract in English") or article.get("abstract_en")
 
     if abs_et:
         try_add("Abstract in Estonian", abs_et)
     if abs_en and total_chars < min_chars_for_stop:
-        # Only add English abstract if we still want more context
+        
         try_add("Abstract in English", abs_en)
 
     if total_chars >= min_chars_for_stop:
         return "\n\n".join(context_parts).strip()
 
-    # 3. Title
     title = article.get("Title") or article.get("title")
     if title:
         try_add("Title", title)
     if total_chars >= min_chars_for_stop:
         return "\n\n".join(context_parts).strip()
 
-    # 4. Journal or source name
+    
     journal = article.get("Source") or article.get("Source")
     if journal:
         try_add("Source", journal)
     if total_chars >= min_chars_for_stop:
         return "\n\n".join(context_parts).strip()
 
-    # 5. Related projects
+   
     related = article.get("Related projects") or article.get("related_projects")
     if related:
         try_add("Related projects", related)
     if total_chars >= min_chars_for_stop:
         return "\n\n".join(context_parts).strip()
 
-    # 6. KeywordsAsFreeText OR UserKeywords
+    
     imported_kw = article.get("KeywordsAsFreeText") or article.get("imported_keywords")
     author_kw = article.get("UserKeywords") or article.get("UserKeywords")
 
-    # We treat these as a last resort: they can help to generate cleaner / normalized keywords.
+    
     if imported_kw:
         try_add("KeywordsAsFreeText", imported_kw)
     if author_kw and total_chars < min_chars_for_stop:
@@ -210,7 +207,7 @@ Remember: respond ONLY with a JSON object of the form:
 
     content = completion.choices[0].message.content.strip()
 
-    # Try to parse JSON; if it fails, return empty keyword list
+    
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
@@ -220,7 +217,7 @@ Remember: respond ONLY with a JSON object of the form:
 
     raw_kw = data.get("keyword", []) or data.get("keywords", [])
 
-    # Normalise different possible formats into a list of strings
+    
     if isinstance(raw_kw, str):
         parts = [p.strip() for p in re.split(r"[;,]", raw_kw) if p.strip()]
         return parts
@@ -259,13 +256,13 @@ def load_articles(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Case: dict-of-dicts by field name → needs transposing
+    
     if isinstance(data, dict):
-        # detect if values are dicts mapping GUID → field value
+        
         if all(isinstance(v, dict) for v in data.values()):
             return transpose_article_dict(data)
 
-        # otherwise treat it as GUID→article
+        
         articles = []
         for guid, fields in data.items():
             item = {"GUID": guid}
@@ -274,7 +271,7 @@ def load_articles(path: Path) -> list[dict]:
             articles.append(item)
         return articles
 
-    # Already a list
+    
     if isinstance(data, list):
         return data
 
