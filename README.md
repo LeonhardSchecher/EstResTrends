@@ -1,7 +1,8 @@
 # Estonian Scientific Research Trends
 Structure:
 
-Article_extraction - Contains the scripts that were used to make the data file, containing all the article documents that we could get, smaller.
+## Article_extraction
+Contains the scripts that were used to make the data file, containing all the article documents that we could get, smaller.
 At first the file was 16 GB. 
 extract_abstracts.py filtered out the abstracts by looking, if the document had a section called abstract. If not the first 400 words of the document were taken.
 jsonfix.py filtered the dataset to throw out trivial descriptions.
