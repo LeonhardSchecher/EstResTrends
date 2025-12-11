@@ -1,277 +1,470 @@
-import json
-import re
-import asyncio
-from pathlib import Path
-from typing import List, Dict, Any
-from openai import AsyncOpenAI
+# app.py
+from dash import Dash, dcc, html, Input, Output
+import plotly.express as px
+import pandas as pd
 
-# ----------------- AUTH / CLIENT SETUP -----------------
-with open("../api.key", 'r', encoding="utf-8") as f:
-    OPENAI_API_KEY = f.read().strip()
+# --------------------------------------------------
+# Data loading and preparation
+# --------------------------------------------------
 
-client = AsyncOpenAI(
-    api_key=OPENAI_API_KEY
+# TODO: change this to the path of your JSON file
+DATA_PATH = "data.json"
+
+# Read JSON into a DataFrame
+df_raw = pd.read_json(DATA_PATH)
+
+# Ensure Year is numeric
+df_raw["Year"] = pd.to_numeric(df_raw["Year"], errors="coerce")
+
+# ---------- Keyword-level data (global keyword counts) ----------
+# "Keywords" is a list of strings per record, e.g. ['biomass', 'graphene', 'catalysis']
+df_keywords_global = (
+    df_raw[["Keywords"]]
+    .explode("Keywords")
+    .rename(columns={"Keywords": "Keyword"})
+    .dropna(subset=["Keyword"])
 )
 
-# ------------------- CONFIG ----------------------------
-INPUT_JSON  = "./etis.json"
-OUTPUT_JSON = "test.json"
-MODEL_NAME  = "gpt-4o-mini"
+# ---------- Institution-level data ----------
+# "Institutions" is a list of dicts per record.
+df_inst_long = df_raw[
+    ["Year", "FrascatiClassification", "Keywords", "Institutions", "Source"]
+].copy()
+df_inst_long = df_inst_long.explode("Institutions")
 
-# Tweak this based on your rate limits & how fast you want to go
-MAX_CONCURRENT_REQUESTS = 5
-# -------------------------------------------------------
+def extract_inst_name(inst):
+    if isinstance(inst, dict):
+        if inst.get("NameEng"):
+            return inst.get("NameEng")
+        return inst.get("Name")
+    return None
 
+df_inst_long["InstitutionName"] = df_inst_long["Institutions"].apply(extract_inst_name)
+df_inst_long = df_inst_long.dropna(subset=["InstitutionName"])
 
-INSTRUCTIONS = """
-You are a bibliometrics assistant that generates BROAD subject keywords for scientific research articles.
-[... keep your long instructions exactly as before ...]
-"""
+# ---------- Columns for windows 2 & 3 playground ----------
+numeric_cols = df_raw.select_dtypes(include="number").columns.tolist()
+categorical_cols = [
+    c
+    for c in df_raw.select_dtypes(include="object").columns
+    if c not in ["Institutions", "Keywords"]
+]
 
+# --------------------------------------------------
+# Helper functions: bar charts for window 1
+# --------------------------------------------------
 
-def truncate(text: str, max_chars: int = 3000) -> str:
-    text = text.strip()
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + "..."
-
-
-def build_article_context(article: Dict[str, Any],
-                          min_chars_for_stop: int = 700,
-                          max_chars_total: int = 4000) -> str:
-    # <<< same as in your previous version, unchanged >>>
-    context_parts = []
-
-    text_field = article.get("Text") or article.get("text")
-    if text_field:
-        text_field = truncate(str(text_field), max_chars_total)
-        return f"Text:\n{text_field}"
-
-    total_chars = 0
-
-    def try_add(label: str, value: str):
-        nonlocal total_chars
-        if not value:
-            return False
-        value = truncate(str(value), max_chars_total)
-        piece = f"{label}:\n{value}"
-        if total_chars + len(piece) > max_chars_total:
-            remaining = max_chars_total - total_chars
-            if remaining <= 0:
-                return False
-            piece = piece[:remaining]
-        context_parts.append(piece)
-        total_chars += len(piece)
-        return True
-
-    abs_et = article.get("Abstract in Estonian") or article.get("abstract_et")
-    abs_en = article.get("Abstract in English") or article.get("abstract_en")
-
-    if abs_et:
-        try_add("Abstract in Estonian", abs_et)
-    if abs_en and total_chars < min_chars_for_stop:
-        try_add("Abstract in English", abs_en)
-
-    if total_chars >= min_chars_for_stop:
-        return "\n\n".join(context_parts).strip()
-
-    title = article.get("Title") or article.get("title")
-    if title:
-        try_add("Title", title)
-    if total_chars >= min_chars_for_stop:
-        return "\n\n".join(context_parts).strip()
-
-    journal = article.get("Source") or article.get("Source")
-    if journal:
-        try_add("Source", journal)
-    if total_chars >= min_chars_for_stop:
-        return "\n\n".join(context_parts).strip()
-
-    related = article.get("Related projects") or article.get("related_projects")
-    if related:
-        try_add("Related projects", related)
-    if total_chars >= min_chars_for_stop:
-        return "\n\n".join(context_parts).strip()
-
-    imported_kw = article.get("KeywordsAsFreeText") or article.get("imported_keywords")
-    author_kw = article.get("UserKeywords") or article.get("UserKeywords")
-
-    if imported_kw:
-        try_add("KeywordsAsFreeText", imported_kw)
-    if author_kw and total_chars < min_chars_for_stop:
-        try_add("UserKeywords", author_kw)
-
-    return "\n\n".join(context_parts).strip()
+def style_bar_fig(fig):
+    """Common styling for bar charts."""
+    fig.update_layout(
+        template="plotly_white",
+        font=dict(family="Zilla Slab", color="black"),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        margin=dict(l=220, r=40, t=60, b=40),  # extra room for long labels
+        yaxis=dict(automargin=True),
+        xaxis=dict(automargin=True),
+    )
+    fig.update_yaxes(tickfont=dict(size=10))
+    fig.update_xaxes(tickfont=dict(size=10))
+    return fig
 
 
-async def call_keyword_model_async(context: str) -> List[str]:
+def bar_top_10_keywords():
+    counts = (
+        df_keywords_global["Keyword"]
+        .value_counts()
+        .nlargest(10)
+        .reset_index()
+    )
+    counts.columns = ["Keyword", "count"]
+    counts = counts.sort_values("count")
+
+    fig = px.bar(
+        counts,
+        x="count",
+        y="Keyword",
+        orientation="h",
+        text="count",
+        title="Top 10 most frequent keywords",
+    )
+    fig.update_traces(textposition="outside", textfont=dict(size=10))
+    return style_bar_fig(fig)
+
+
+def bar_top_10_sources():
+    counts = (
+        df_raw["Source"]
+        .dropna()
+        .value_counts()
+        .nlargest(10)
+        .reset_index()
+    )
+    counts.columns = ["Source", "count"]
+    counts = counts.sort_values("count")
+
+    fig = px.bar(
+        counts,
+        x="count",
+        y="Source",
+        orientation="h",
+        text="count",
+        title="Top 10 most frequent sources",
+    )
+    fig.update_traces(textposition="outside", textfont=dict(size=10))
+    return style_bar_fig(fig)
+
+
+def bar_most_frequent_frascati_per_institution(top_n=10):
     """
-    Async version: call the Responses API once for a single article.
+    For each institution, find its most frequent Frascati classification.
+    Bars: institutions (y), x-axis: count of that classification.
+    Text on the bar: the classification label.
     """
-    if not context:
-        return []
+    sub = df_inst_long[["InstitutionName", "FrascatiClassification"]].dropna()
+    if sub.empty:
+        fig = px.bar(title="No data for institution Frascati classifications")
+        return style_bar_fig(fig)
 
-    prompt = f"""Below is information about a scientific article.
-Use it to generate subject keywords following the instructions.
-
-ARTICLE INFORMATION:
-{context}
-
-Remember: respond ONLY with a JSON object of the form:
-{{"keyword": ["kw1", "kw2", "..."]}}
-"""
-
-    resp = await client.responses.create(
-        model=MODEL_NAME,
-        input=[
-            {"role": "system", "content": INSTRUCTIONS},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.1,
-        max_output_tokens=256,
+    counts = (
+        sub.groupby(["InstitutionName", "FrascatiClassification"])
+        .size()
+        .reset_index(name="count")
     )
 
-    content = resp.output_text.strip()
+    idx = counts.groupby("InstitutionName")["count"].idxmax()
+    top = counts.loc[idx].sort_values("count", ascending=False).head(top_n)
+    top = top.sort_values("count")
 
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError:
-        print("Warning: model returned non-JSON, treating as no keywords:")
-        print(content[:300])
-        return []
-
-    raw_kw = data.get("keyword", []) or data.get("keywords", [])
-
-    if isinstance(raw_kw, str):
-        parts = [p.strip() for p in re.split(r"[;,]", raw_kw) if p.strip()]
-        return parts
-
-    if isinstance(raw_kw, list):
-        cleaned = []
-        for k in raw_kw:
-            s = str(k).strip()
-            if s:
-                cleaned.append(s)
-        return cleaned
-
-    return []
+    fig = px.bar(
+        top,
+        x="count",
+        y="InstitutionName",
+        orientation="h",
+        text="FrascatiClassification",
+        title="Most frequent Frascati classification of each institution",
+    )
+    fig.update_traces(textposition="outside", textfont=dict(size=9))
+    return style_bar_fig(fig)
 
 
-def transpose_article_dict(data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    articles: Dict[str, Dict[str, Any]] = {}
+# --------------------------------------------------
+# Generic scatter for windows 2 & 3
+# --------------------------------------------------
 
-    for field_name, guid_map in data.items():
-        if not isinstance(guid_map, dict):
-            continue
-
-        for guid, value in guid_map.items():
-            if guid not in articles:
-                articles[guid] = {"GUID": guid}
-            articles[guid][field_name] = value
-
-    return list(articles.values())
-
-
-def load_articles(path: Path) -> List[Dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if isinstance(data, dict):
-        if all(isinstance(v, dict) for v in data.values()):
-            return transpose_article_dict(data)
-
-        articles = []
-        for guid, fields in data.items():
-            item = {"GUID": guid}
-            if isinstance(fields, dict):
-                item.update(fields)
-            articles.append(item)
-        return articles
-
-    if isinstance(data, list):
-        return data
-
-    raise ValueError("Unsupported JSON format")
+def make_scatter(data, x_col, y_col, color_col):
+    color_arg = None if color_col == "None" else color_col
+    fig = px.scatter(
+        data,
+        x=x_col,
+        y=y_col,
+        color=color_arg,
+        template="plotly_white",
+        height=400,
+    )
+    fig.update_layout(
+        font=dict(family="Zilla Slab", color="black"),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        margin=dict(l=40, r=20, t=40, b=40),
+    )
+    return fig
 
 
-def load_existing_results(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, list):
-        return []
-    return data
+# --------------------------------------------------
+# Dash app setup
+# --------------------------------------------------
+
+external_stylesheets = [
+    "https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@300;400;500;700&display=swap"
+]
+
+app = Dash(__name__, external_stylesheets=external_stylesheets)
+app.title = "Project Dashboard"
 
 
-async def process_article(article: Dict[str, Any],
-                          existing_guids: set,
-                          sem: asyncio.Semaphore) -> Dict[str, Any] | None:
-    guid = article.get("GUID") or article.get("guid")
-    if not guid:
-        return None
-    if guid in existing_guids:
-        # already processed in existing output file
-        return None
-
-    context = build_article_context(article)
-    if not context:
-        print(f"[GUID={guid}] No usable fields, skipping.")
-        return {"GUID": guid, "keyword": []}
-
-    async with sem:
-        try:
-            keywords = await call_keyword_model_async(context)
-        except Exception as e:
-            print(f"Error on GUID={guid}: {e}")
-            keywords = []
-
-    if keywords == []:
-        # If you want to record empty too, return {"GUID": guid, "keyword": []}
-        return None
-
-    return {"GUID": guid, "keyword": keywords}
+def dropdown_options(values):
+    return [{"label": v, "value": v} for v in values]
 
 
-async def main_async():
-    in_path = Path(INPUT_JSON)
-    out_path = Path(OUTPUT_JSON)
+numeric_options = dropdown_options(numeric_cols)
+color_options = dropdown_options(["None"] + categorical_cols)
 
-    articles = load_articles(in_path)
-    print(f"Loaded {len(articles)} articles from {in_path}")
+# Options for the first dropdown in window 1 (only the ones you asked to keep)
+METRIC_OPTIONS = [
+    {
+        "label": "Top 10 most frequent keywords",
+        "value": "top_keywords",
+    },
+    {
+        "label": "Top 10 most frequent sources",
+        "value": "top_sources",
+    },
+    {
+        "label": "Most frequent Frascati classification of each institution",
+        "value": "inst_top_frascati",
+    },
+]
 
-    existing = load_existing_results(out_path)
-    existing_guids = {row.get("GUID") for row in existing if isinstance(row, dict)}
-    print(f"Loaded {len(existing)} existing results, will skip those GUIDs.")
 
-    sem = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+# --------------------------------------------------
+# Layout blocks
+# --------------------------------------------------
 
-    tasks = [
-        process_article(article, existing_guids, sem)
-        for article in articles[:500]  # or remove slicing if you want all
-    ]
+def make_first_plot_window():
+    # Window 1: custom bar plot + single dropdown
+    return html.Div(
+        className="plot-window",
+        style={
+            "display": "flex",
+            "flexDirection": "row",
+            "alignItems": "stretch",
+            "gap": "24px",
+            "marginBottom": "40px",
+        },
+        children=[
+            html.Div(
+                className="controls",
+                style={
+                    "width": "25%",
+                    "minWidth": "260px",
+                },
+                children=[
+                    html.H2(
+                        "Plot Window 1 – Overview",
+                        style={
+                            "fontFamily": "Zilla Slab, serif",
+                            "marginBottom": "12px",
+                        },
+                    ),
+                    html.H3(
+                        "Controls",
+                        style={
+                            "fontFamily": "Zilla Slab, serif",
+                            "fontSize": "18px",
+                            "marginBottom": "8px",
+                        },
+                    ),
+                    html.Label("Select view"),
+                    dcc.Dropdown(
+                        id="w1-metric",
+                        options=METRIC_OPTIONS,
+                        value="top_keywords",  # default: option 1
+                        clearable=False,
+                    ),
+                ],
+            ),
+            html.Div(
+                className="plot-area",
+                style={"flex": "1"},
+                children=[
+                    dcc.Graph(
+                        id="w1-graph",
+                        style={"height": "100%"},
+                        config={
+                            "modeBarButtonsToRemove": ["select2d", "lasso2d"]
+                        },
+                    )
+                ],
+            ),
+        ],
+    )
 
-    results: List[Dict[str, Any]] = []
-    processed = 0
 
-    for coro_chunk_start in range(0, len(tasks), 50):
-        # run in moderate chunks so we see progress
-        chunk = tasks[coro_chunk_start:coro_chunk_start + 50]
-        chunk_results = await asyncio.gather(*chunk)
-        for r in chunk_results:
-            if r is not None:
-                results.append(r)
-            processed += 1
-        print(f"Processed {processed} articles so far...")
+def make_generic_plot_window(window_title, prefix):
+    x_default = numeric_cols[0] if numeric_cols else None
+    y_default = numeric_cols[1] if len(numeric_cols) > 1 else x_default
+    color_default = "None"
 
-    all_results = existing + results
+    return html.Div(
+        className="plot-window",
+        style={
+            "display": "flex",
+            "flexDirection": "row",
+            "alignItems": "stretch",
+            "gap": "24px",
+            "marginBottom": "40px",
+        },
+        children=[
+            html.Div(
+                className="controls",
+                style={
+                    "width": "25%",
+                    "minWidth": "220px",
+                },
+                children=[
+                    html.H2(
+                        window_title,
+                        style={
+                            "fontFamily": "Zilla Slab, serif",
+                            "marginBottom": "12px",
+                        },
+                    ),
+                    html.H3(
+                        "Controls",
+                        style={
+                            "fontFamily": "Zilla Slab, serif",
+                            "fontSize": "18px",
+                            "marginBottom": "8px",
+                        },
+                    ),
+                    html.Label("X axis"),
+                    dcc.Dropdown(
+                        id=f"{prefix}-x",
+                        options=numeric_options,
+                        value=x_default,
+                        clearable=False,
+                        style={"marginBottom": "12px"},
+                    ),
+                    html.Label("Y axis"),
+                    dcc.Dropdown(
+                        id=f"{prefix}-y",
+                        options=numeric_options,
+                        value=y_default,
+                        clearable=False,
+                        style={"marginBottom": "12px"},
+                    ),
+                    html.Label("Color / group by"),
+                    dcc.Dropdown(
+                        id=f"{prefix}-color",
+                        options=color_options,
+                        value=color_default,
+                        clearable=False,
+                    ),
+                ],
+            ),
+            html.Div(
+                className="plot-area",
+                style={"flex": "1"},
+                children=[
+                    dcc.Graph(
+                        id=f"{prefix}-graph",
+                        style={"height": "100%"},
+                        config={
+                            "modeBarButtonsToRemove": ["select2d", "lasso2d"]
+                        },
+                    )
+                ],
+            ),
+        ],
+    )
 
-    with out_path.open("w", encoding="utf-8") as f_out:
-        json.dump(all_results, f_out, ensure_ascii=False, indent=2)
 
-    print(f"Done. New results: {len(results)}, total stored: {len(all_results)}.")
-    print(f"Keyword file written to: {out_path}")
+# --------------------------------------------------
+# App layout
+# --------------------------------------------------
 
+app.layout = html.Div(
+    style={
+        "fontFamily": "Zilla Slab, serif",
+        "backgroundColor": "white",
+        "color": "black",
+        "minHeight": "100vh",
+    },
+    children=[
+        html.Div(
+            style={
+                "maxWidth": "1200px",
+                "margin": "0 auto",
+                "padding": "24px 16px 40px 16px",
+            },
+            children=[
+                html.H1(
+                    "Project Title",
+                    style={
+                        "fontFamily": "Zilla Slab, serif",
+                        "fontWeight": "700",
+                        "marginBottom": "8px",
+                    },
+                ),
+                html.H2(
+                    "Introduction",
+                    style={
+                        "fontFamily": "Zilla Slab, serif",
+                        "fontWeight": "400",
+                        "fontSize": "22px",
+                        "marginBottom": "8px",
+                    },
+                ),
+                html.P(
+                    """
+                    Briefly describe the goal of the project here.
+                    Explain what the dataset represents, how it was collected,
+                    and what kind of patterns the user can explore in the plots below.
+                    """,
+                    style={
+                        "fontSize": "16px",
+                        "lineHeight": "1.5",
+                        "marginBottom": "24px",
+                    },
+                ),
+
+                html.Hr(),
+
+                # Window 1: custom bar plot with 3 modes
+                make_first_plot_window(),
+
+                # Windows 2 & 3: generic playground scatter
+                make_generic_plot_window("Plot Window 2", "w2"),
+                make_generic_plot_window("Plot Window 3", "w3"),
+            ],
+        )
+    ],
+)
+
+
+# --------------------------------------------------
+# Callbacks
+# --------------------------------------------------
+
+# 1) Update bar plot in window 1
+@app.callback(
+    Output("w1-graph", "figure"),
+    Input("w1-metric", "value"),
+)
+def update_w1_graph(metric_value):
+    if metric_value == "top_keywords":
+        return bar_top_10_keywords()
+
+    elif metric_value == "top_sources":
+        return bar_top_10_sources()
+
+    elif metric_value == "inst_top_frascati":
+        return bar_most_frequent_frascati_per_institution(top_n=10)
+
+    fig = px.bar(title="No metric selected")
+    return style_bar_fig(fig)
+
+
+# 2) Window 2 scatter
+@app.callback(
+    Output("w2-graph", "figure"),
+    Input("w2-x", "value"),
+    Input("w2-y", "value"),
+    Input("w2-color", "value"),
+)
+def update_w2_graph(x_col, y_col, color_col):
+    if x_col is None or y_col is None:
+        return px.scatter(title="Select numeric columns for X and Y")
+    return make_scatter(df_raw, x_col, y_col, color_col)
+
+
+# 3) Window 3 scatter
+@app.callback(
+    Output("w3-graph", "figure"),
+    Input("w3-x", "value"),
+    Input("w3-y", "value"),
+    Input("w3-color", "value"),
+)
+def update_w3_graph(x_col, y_col, color_col):
+    if x_col is None or y_col is None:
+        return px.scatter(title="Select numeric columns for X and Y")
+    return make_scatter(df_raw, x_col, y_col, color_col)
+
+
+# --------------------------------------------------
+# Entry point
+# --------------------------------------------------
 
 if __name__ == "__main__":
-    asyncio.run(main_async())
+    app.run(debug=True)

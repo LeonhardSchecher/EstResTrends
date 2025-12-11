@@ -1,4 +1,3 @@
-# app.py
 from dash import Dash, dcc, html, Input, Output
 import plotly.express as px
 import pandas as pd
@@ -16,8 +15,16 @@ df_raw = pd.read_json(DATA_PATH)
 # Ensure Year is numeric
 df_raw["Year"] = pd.to_numeric(df_raw["Year"], errors="coerce")
 
-# ---------- Prepare keyword-level data (global keyword counts) ----------
-# "Keywords" is a list of strings per record, e.g. ['biomass', 'graphene', 'catalysis']
+# Global min/max years (for x-axis range on line charts)
+_year_nonnull = df_raw["Year"].dropna()
+if not _year_nonnull.empty:
+    YEAR_MIN = int(_year_nonnull.min())
+    YEAR_MAX = int(_year_nonnull.max())
+else:
+    YEAR_MIN = YEAR_MAX = None
+
+# ---------- Keyword-level data ----------
+# Keywords is a list of strings per record
 df_keywords_global = (
     df_raw[["Keywords"]]
     .explode("Keywords")
@@ -25,24 +32,22 @@ df_keywords_global = (
     .dropna(subset=["Keyword"])
 )
 
-# ---------- Prepare institution-level data ----------
-# "Institutions" is a list of dicts per record.
-# Example:
-# [
-#   {
-#     'BusinessRegNo': '74001073',
-#     'Guid': 'edd8273f-2bf0-41f6-a4e8-167597dffdf5',
-#     'Name': '...',
-#     'NameEng': '...'
-#   },
-#   ...
-# ]
+# Keywords with Year (for line chart)
+df_keywords_year = (
+    df_raw[["Year", "Keywords"]]
+    .explode("Keywords")
+    .rename(columns={"Keywords": "Keyword"})
+    .dropna(subset=["Keyword", "Year"])
+)
+df_keywords_year["YearInt"] = df_keywords_year["Year"].astype(int)
+
+# ---------- Institution-level data ----------
 df_inst_long = df_raw[
     ["Year", "FrascatiClassification", "Keywords", "Institutions", "Source"]
 ].copy()
 df_inst_long = df_inst_long.explode("Institutions")
 
-# Extract a clean institution name (prefer NameEng, fallback to Name)
+
 def extract_inst_name(inst):
     if isinstance(inst, dict):
         if inst.get("NameEng"):
@@ -54,44 +59,29 @@ def extract_inst_name(inst):
 df_inst_long["InstitutionName"] = df_inst_long["Institutions"].apply(extract_inst_name)
 df_inst_long = df_inst_long.dropna(subset=["InstitutionName"])
 
-# List of all institutions (for dropdown 2 in mode 7)
-institutions = sorted(df_inst_long["InstitutionName"].dropna().unique().tolist())
-
-# ---------- Institution + keyword long format ----------
-# One row per (InstitutionName, Year, Keyword)
-df_inst_keywords_long = (
-    df_inst_long[["InstitutionName", "Year", "Keywords"]]
-    .explode("Keywords")
-    .rename(columns={"Keywords": "Keyword"})
-    .dropna(subset=["Keyword"])
-)
-
-# ---------- Columns for windows 2 & 3 playground ----------
-numeric_cols = df_raw.select_dtypes(include="number").columns.tolist()
-categorical_cols = [
-    c
-    for c in df_raw.select_dtypes(include="object").columns
-    if c not in ["Institutions", "Keywords"]
-]
+# Frascati with Year (for line chart)
+df_fras_year = df_raw[["Year", "FrascatiClassification"]].dropna()
+df_fras_year = df_fras_year[df_fras_year["Year"].notna()]
+df_fras_year["YearInt"] = df_fras_year["Year"].astype(int)
 
 # --------------------------------------------------
-# Helper functions: bar charts for window 1
+# Helper functions: bar charts (Window 1)
 # --------------------------------------------------
 
 def style_bar_fig(fig):
-    """Common styling for bar charts."""
+    """Common styling for bar charts with plenty of space."""
     fig.update_layout(
         template="plotly_white",
-        font=dict(family="Zilla Slab", color="black"),
+        font=dict(family="Zilla Slab", color="black", size=14),
         paper_bgcolor="white",
         plot_bgcolor="white",
-        # More room on the left for long labels
-        margin=dict(l=220, r=40, t=60, b=40),
+        margin=dict(l=260, r=40, t=60, b=60),  # room for long labels
+        height=600,  # tall figure
         yaxis=dict(automargin=True),
         xaxis=dict(automargin=True),
     )
-    fig.update_yaxes(tickfont=dict(size=10))
-    fig.update_xaxes(tickfont=dict(size=10))
+    fig.update_yaxes(tickfont=dict(size=12))
+    fig.update_xaxes(tickfont=dict(size=12))
     return fig
 
 
@@ -113,52 +103,7 @@ def bar_top_10_keywords():
         text="count",
         title="Top 10 most frequent keywords",
     )
-    fig.update_traces(textposition="outside", textfont=dict(size=10))
-    return style_bar_fig(fig)
-
-
-def bar_top_10_frascati():
-    counts = (
-        df_raw["FrascatiClassification"]
-        .dropna()
-        .value_counts()
-        .nlargest(10)
-        .reset_index()
-    )
-    counts.columns = ["FrascatiClassification", "count"]
-    counts = counts.sort_values("count")
-
-    fig = px.bar(
-        counts,
-        x="count",
-        y="FrascatiClassification",
-        orientation="h",
-        text="count",
-        title="Top 10 most frequent Frascati classifications",
-    )
-    fig.update_traces(textposition="outside", textfont=dict(size=10))
-    return style_bar_fig(fig)
-
-
-def bar_top_10_institutions():
-    counts = (
-        df_inst_long["InstitutionName"]
-        .value_counts()
-        .nlargest(10)
-        .reset_index()
-    )
-    counts.columns = ["InstitutionName", "count"]
-    counts = counts.sort_values("count")
-
-    fig = px.bar(
-        counts,
-        x="count",
-        y="InstitutionName",
-        orientation="h",
-        text="count",
-        title="Top 10 most frequent institutions",
-    )
-    fig.update_traces(textposition="outside", textfont=dict(size=10))
+    fig.update_traces(textposition="outside", textfont=dict(size=14))
     return style_bar_fig(fig)
 
 
@@ -181,44 +126,11 @@ def bar_top_10_sources():
         text="count",
         title="Top 10 most frequent sources",
     )
-    fig.update_traces(textposition="outside", textfont=dict(size=10))
+    fig.update_traces(textposition="outside", textfont=dict(size=14))
     return style_bar_fig(fig)
 
 
-def bar_most_frequent_keyword_per_institution(top_n=10):
-    """
-    For each institution, find its most frequent keyword.
-    Bars: institutions (y), x-axis: count of that keyword.
-    Text on the bar: the keyword.
-    """
-    sub = df_inst_keywords_long.copy()
-    if sub.empty:
-        fig = px.bar(title="No data for institution keywords")
-        return style_bar_fig(fig)
-
-    counts = (
-        sub.groupby(["InstitutionName", "Keyword"])
-        .size()
-        .reset_index(name="count")
-    )
-
-    idx = counts.groupby("InstitutionName")["count"].idxmax()
-    top = counts.loc[idx].sort_values("count", ascending=False).head(top_n)
-    top = top.sort_values("count")
-
-    fig = px.bar(
-        top,
-        x="count",
-        y="InstitutionName",
-        orientation="h",
-        text="Keyword",
-        title="Most frequent keyword of each institution",
-    )
-    fig.update_traces(textposition="outside", textfont=dict(size=9))
-    return style_bar_fig(fig)
-
-
-def bar_most_frequent_frascati_per_institution(top_n=10):
+def bar_most_frequent_frascati_per_institution(top_n=6):
     """
     For each institution, find its most frequent Frascati classification.
     Bars: institutions (y), x-axis: count of that classification.
@@ -247,65 +159,169 @@ def bar_most_frequent_frascati_per_institution(top_n=10):
         text="FrascatiClassification",
         title="Most frequent Frascati classification of each institution",
     )
-    fig.update_traces(textposition="outside", textfont=dict(size=9))
+    fig.update_traces(textposition="outside", textfont=dict(size=14))
     return style_bar_fig(fig)
 
 
-def bar_top_keyword_per_year_for_institution(institution_name):
-    """
-    For a chosen institution:
-    - x-axis: Year
-    - y-axis: count of the top keyword that year
-    - text on bar: keyword
-    """
-    sub = df_inst_keywords_long[
-        df_inst_keywords_long["InstitutionName"] == institution_name
-    ]
-    if sub.empty:
-        fig = px.bar(title=f"No data for institution: {institution_name}")
-        return style_bar_fig(fig)
+# --------------------------------------------------
+# Line charts (Window 2) – keyword (default) & Frascati
+# --------------------------------------------------
 
-    counts = (
-        sub.groupby(["Year", "Keyword"])
+def _apply_year_axis(fig):
+    """Apply global year range and integer ticks to a line chart."""
+    if YEAR_MIN is not None and YEAR_MAX is not None:
+        fig.update_xaxes(
+            range=[YEAR_MIN - 0.5, YEAR_MAX + 0.5],
+            dtick=1,
+            tickmode="linear",
+            title_text="Year",
+        )
+    else:
+        fig.update_xaxes(
+            dtick=1,
+            tickmode="linear",
+            title_text="Year",
+        )
+    fig.update_yaxes(title_text="count")
+    return fig
+
+
+def keywords_over_years_top6():
+    """Top 6 keywords over years (line chart)."""
+    if df_keywords_year.empty:
+        return px.line(title="No keyword data")
+
+    top_kw = (
+        df_keywords_year["Keyword"]
+        .value_counts()
+        .nlargest(6)
+        .index
+    )
+    df_top = df_keywords_year[df_keywords_year["Keyword"].isin(top_kw)]
+
+    year_counts = (
+        df_top.groupby(["YearInt", "Keyword"])
         .size()
         .reset_index(name="count")
     )
 
-    idx = counts.groupby("Year")["count"].idxmax()
-    top = counts.loc[idx].sort_values("Year")
-
-    fig = px.bar(
-        top,
-        x="Year",
+    fig = px.line(
+        year_counts,
+        x="YearInt",
         y="count",
-        text="Keyword",
-        title=f"Top keyword of {institution_name} per year",
+        color="Keyword",
+        markers=True,
+        title="Top 6 keywords over years",
     )
-    fig.update_traces(textposition="outside", textfont=dict(size=9))
-    return style_bar_fig(fig)
 
-
-# --------------------------------------------------
-# Generic scatter for windows 2 & 3
-# --------------------------------------------------
-
-def make_scatter(data, x_col, y_col, color_col):
-    color_arg = None if color_col == "None" else color_col
-    fig = px.scatter(
-        data,
-        x=x_col,
-        y=y_col,
-        color=color_arg,
-        template="plotly_white",
-        height=400,
-    )
     fig.update_layout(
+        template="plotly_white",
         font=dict(family="Zilla Slab", color="black"),
         paper_bgcolor="white",
         plot_bgcolor="white",
-        margin=dict(l=40, r=20, t=40, b=40),
+        margin=dict(l=40, r=20, t=60, b=60),
+        legend_title_text="Keyword",
+    )
+    return _apply_year_axis(fig)
+
+
+def frascati_over_years_top6():
+    """Top 6 Frascati classifications over years (line chart)."""
+    if df_fras_year.empty:
+        return px.line(title="No Frascati data")
+
+    top_codes = (
+        df_fras_year["FrascatiClassification"]
+        .value_counts()
+        .nlargest(6)
+        .index
+    )
+    df_top = df_fras_year[df_fras_year["FrascatiClassification"].isin(top_codes)]
+
+    year_counts = (
+        df_top.groupby(["YearInt", "FrascatiClassification"])
+        .size()
+        .reset_index(name="count")
+    )
+
+    fig = px.line(
+        year_counts,
+        x="YearInt",
+        y="count",
+        color="FrascatiClassification",
+        markers=True,
+        title="Top 6 Frascati classifications over years",
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        font=dict(family="Zilla Slab", color="black"),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        margin=dict(l=40, r=20, t=60, b=60),
+        legend_title_text="Frascati",
+    )
+    return _apply_year_axis(fig)
+
+
+# --------------------------------------------------
+# Pie charts (Window 3)
+# --------------------------------------------------
+
+def make_pie_from_series(series, title, top_n=10):
+    s = series.dropna()
+    if s.empty:
+        fig = px.pie(title=f"No data for {title}")
+        fig.update_layout(
+            template="plotly_white",
+            font=dict(family="Zilla Slab", color="black"),
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+        )
+        return fig
+
+    counts = s.value_counts()
+    if len(counts) > top_n:
+        top = counts.iloc[:top_n]
+        other = counts.iloc[top_n:].sum()
+        counts = pd.concat([top, pd.Series({"Other": other})])
+
+    df_counts = counts.reset_index()
+    df_counts.columns = ["label", "count"]
+
+    fig = px.pie(
+        df_counts,
+        names="label",
+        values="count",
+        title=title,
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        font=dict(family="Zilla Slab", color="black"),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        legend_title_text="",
     )
     return fig
+
+
+def distribution_pie(metric_value: str):
+    """Return the appropriate pie chart for window 3."""
+    # Default & 'frascati' → Frascati frequency
+    if metric_value in (None, "frascati"):
+        return make_pie_from_series(
+            df_raw["FrascatiClassification"], "Frascati frequency"
+        )
+    # Institutions frequency
+    elif metric_value == "institution":
+        return make_pie_from_series(
+            df_inst_long["InstitutionName"], "Institutions frequency"
+        )
+    # Fallback to Frascati
+    return make_pie_from_series(
+        df_raw["FrascatiClassification"], "Frascati frequency"
+    )
 
 
 # --------------------------------------------------
@@ -319,44 +335,26 @@ external_stylesheets = [
 app = Dash(__name__, external_stylesheets=external_stylesheets)
 app.title = "Project Dashboard"
 
-
-def dropdown_options(values):
-    return [{"label": v, "value": v} for v in values]
-
-
-numeric_options = dropdown_options(numeric_cols)
-color_options = dropdown_options(["None"] + categorical_cols)
-
-# Options for the first dropdown in window 1
-METRIC_OPTIONS = [
-    {
-        "label": "Top 10 most frequent keywords",
-        "value": "top_keywords",
-    },
-    {
-        "label": "Top 10 most frequent Frascati classifications",
-        "value": "top_frascati",
-    },
-    {
-        "label": "Top 10 most frequent institutions",
-        "value": "top_institutions",
-    },
-    {
-        "label": "Top 10 most frequent sources",
-        "value": "top_sources",
-    },
-    {
-        "label": "Most frequent keyword of each institution",
-        "value": "inst_top_keyword",
-    },
+# Options for Window 1 (bar plots)
+METRIC_OPTIONS_W1 = [
+    {"label": "Top 10 most frequent keywords", "value": "top_keywords"},
+    {"label": "Top 10 most frequent sources", "value": "top_sources"},
     {
         "label": "Most frequent Frascati classification of each institution",
         "value": "inst_top_frascati",
     },
-    {
-        "label": "Top keyword of an institution per year",
-        "value": "inst_year_top_keyword",
-    },
+]
+
+# Options for Window 2 (line plots)
+METRIC_OPTIONS_W2 = [
+    {"label": "Top 6 keywords over years", "value": "keyword"},
+    {"label": "Top 6 Frascati classifications over years", "value": "frascati"},
+]
+
+# Options for Window 3 (pie charts) – ONLY frascati & institutions
+METRIC_OPTIONS_W3 = [
+    {"label": "Frascati frequency", "value": "frascati"},
+    {"label": "Institutions frequency", "value": "institution"},
 ]
 
 
@@ -365,7 +363,6 @@ METRIC_OPTIONS = [
 # --------------------------------------------------
 
 def make_first_plot_window():
-    # Window 1: custom bar plot + 2 dropdowns
     return html.Div(
         className="plot-window",
         style={
@@ -378,17 +375,11 @@ def make_first_plot_window():
         children=[
             html.Div(
                 className="controls",
-                style={
-                    "width": "25%",
-                    "minWidth": "260px",
-                },
+                style={"width": "25%", "minWidth": "260px"},
                 children=[
                     html.H2(
                         "Plot Window 1 – Overview",
-                        style={
-                            "fontFamily": "Zilla Slab, serif",
-                            "marginBottom": "12px",
-                        },
+                        style={"fontFamily": "Zilla Slab, serif", "marginBottom": "12px"},
                     ),
                     html.H3(
                         "Controls",
@@ -401,16 +392,8 @@ def make_first_plot_window():
                     html.Label("Select view"),
                     dcc.Dropdown(
                         id="w1-metric",
-                        options=METRIC_OPTIONS,
-                        value="top_keywords",  # default: option 1
-                        clearable=False,
-                        style={"marginBottom": "16px"},
-                    ),
-                    html.Label("Institution"),
-                    dcc.Dropdown(
-                        id="w1-institution",
-                        options=[{"label": "-", "value": "-"}],  # default: "-"
-                        value="-",
+                        options=METRIC_OPTIONS_W1,
+                        value="top_keywords",  # default
                         clearable=False,
                     ),
                 ],
@@ -421,10 +404,8 @@ def make_first_plot_window():
                 children=[
                     dcc.Graph(
                         id="w1-graph",
-                        style={"height": "100%"},
-                        config={
-                            "modeBarButtonsToRemove": ["select2d", "lasso2d"]
-                        },
+                        style={"height": "600px"},  # fixed tall height
+                        config={"modeBarButtonsToRemove": ["select2d", "lasso2d"]},
                     )
                 ],
             ),
@@ -432,11 +413,7 @@ def make_first_plot_window():
     )
 
 
-def make_generic_plot_window(window_title, prefix):
-    x_default = numeric_cols[0] if numeric_cols else None
-    y_default = numeric_cols[1] if len(numeric_cols) > 1 else x_default
-    color_default = "None"
-
+def make_second_plot_window():
     return html.Div(
         className="plot-window",
         style={
@@ -449,17 +426,11 @@ def make_generic_plot_window(window_title, prefix):
         children=[
             html.Div(
                 className="controls",
-                style={
-                    "width": "25%",
-                    "minWidth": "220px",
-                },
+                style={"width": "25%", "minWidth": "260px"},
                 children=[
                     html.H2(
-                        window_title,
-                        style={
-                            "fontFamily": "Zilla Slab, serif",
-                            "marginBottom": "12px",
-                        },
+                        "Plot Window 2 – Trends over years",
+                        style={"fontFamily": "Zilla Slab, serif", "marginBottom": "12px"},
                     ),
                     html.H3(
                         "Controls",
@@ -469,27 +440,11 @@ def make_generic_plot_window(window_title, prefix):
                             "marginBottom": "8px",
                         },
                     ),
-                    html.Label("X axis"),
+                    html.Label("Select view"),
                     dcc.Dropdown(
-                        id=f"{prefix}-x",
-                        options=numeric_options,
-                        value=x_default,
-                        clearable=False,
-                        style={"marginBottom": "12px"},
-                    ),
-                    html.Label("Y axis"),
-                    dcc.Dropdown(
-                        id=f"{prefix}-y",
-                        options=numeric_options,
-                        value=y_default,
-                        clearable=False,
-                        style={"marginBottom": "12px"},
-                    ),
-                    html.Label("Color / group by"),
-                    dcc.Dropdown(
-                        id=f"{prefix}-color",
-                        options=color_options,
-                        value=color_default,
+                        id="w2-metric",
+                        options=METRIC_OPTIONS_W2,
+                        value="keyword",  # default: keyword line
                         clearable=False,
                     ),
                 ],
@@ -499,11 +454,59 @@ def make_generic_plot_window(window_title, prefix):
                 style={"flex": "1"},
                 children=[
                     dcc.Graph(
-                        id=f"{prefix}-graph",
-                        style={"height": "100%"},
-                        config={
-                            "modeBarButtonsToRemove": ["select2d", "lasso2d"]
+                        id="w2-graph",
+                        style={"height": "500px"},
+                        config={"modeBarButtonsToRemove": ["select2d", "lasso2d"]},
+                    )
+                ],
+            ),
+        ],
+    )
+
+
+def make_third_plot_window():
+    return html.Div(
+        className="plot-window",
+        style={
+            "display": "flex",
+            "flexDirection": "row",
+            "alignItems": "stretch",
+            "gap": "24px",
+            "marginBottom": "40px",
+        },
+        children=[
+            html.Div(
+                className="controls",
+                style={"width": "25%", "minWidth": "260px"},
+                children=[
+                    html.H2(
+                        "Plot Window 3 – Distribution",
+                        style={"fontFamily": "Zilla Slab, serif", "marginBottom": "12px"},
+                    ),
+                    html.H3(
+                        "Controls",
+                        style={
+                            "fontFamily": "Zilla Slab, serif",
+                            "fontSize": "18px",
+                            "marginBottom": "8px",
                         },
+                    ),
+                    html.Label("Select view"),
+                    dcc.Dropdown(
+                        id="w3-metric",
+                        options=METRIC_OPTIONS_W3,
+                        value="frascati",  # default: Frascati pie
+                        clearable=False,
+                    ),
+                ],
+            ),
+            html.Div(
+                className="plot-area",
+                style={"flex": "1"},
+                children=[
+                    dcc.Graph(
+                        id="w3-graph",
+                        style={"height": "500px"},
                     )
                 ],
             ),
@@ -531,7 +534,7 @@ app.layout = html.Div(
             },
             children=[
                 html.H1(
-                    "Project Title",
+                    "Estonian Resarch Trends",
                     style={
                         "fontFamily": "Zilla Slab, serif",
                         "fontWeight": "700",
@@ -549,9 +552,7 @@ app.layout = html.Div(
                 ),
                 html.P(
                     """
-                    Briefly describe the goal of the project here.
-                    Explain what the dataset represents, how it was collected,
-                    and what kind of patterns the user can explore in the plots below.
+                    The plots below demonstrate different aspects of the data we extracted. 
                     """,
                     style={
                         "fontSize": "16px",
@@ -559,15 +560,10 @@ app.layout = html.Div(
                         "marginBottom": "24px",
                     },
                 ),
-
                 html.Hr(),
-
-                # Window 1: custom bar plot with the 7 modes
                 make_first_plot_window(),
-
-                # Windows 2 & 3: generic playground scatter
-                make_generic_plot_window("Plot Window 2", "w2"),
-                make_generic_plot_window("Plot Window 3", "w3"),
+                make_second_plot_window(),
+                make_third_plot_window(),
             ],
         )
     ],
@@ -578,87 +574,43 @@ app.layout = html.Div(
 # Callbacks
 # --------------------------------------------------
 
-# 1) Update institution dropdown based on metric selection
-@app.callback(
-    Output("w1-institution", "options"),
-    Output("w1-institution", "value"),
-    Input("w1-metric", "value"),
-)
-def update_w1_institution_dropdown(metric_value):
-    # For all options except the last (inst_year_top_keyword), show only "-"
-    if metric_value != "inst_year_top_keyword":
-        return [{"label": "-", "value": "-"}], "-"
-
-    # For the last option: list all institutions from the JSON
-    if not institutions:
-        return [{"label": "-", "value": "-"}], "-"
-
-    inst_options = [{"label": inst, "value": inst} for inst in institutions]
-    default_inst = institutions[0]
-    return inst_options, default_inst
-
-
-# 2) Update bar plot in window 1
+# Window 1 – bar plots
 @app.callback(
     Output("w1-graph", "figure"),
     Input("w1-metric", "value"),
-    Input("w1-institution", "value"),
 )
-def update_w1_graph(metric_value, institution_value):
+def update_w1_graph(metric_value):
     if metric_value == "top_keywords":
         return bar_top_10_keywords()
-
-    elif metric_value == "top_frascati":
-        return bar_top_10_frascati()
-
-    elif metric_value == "top_institutions":
-        return bar_top_10_institutions()
-
     elif metric_value == "top_sources":
         return bar_top_10_sources()
-
-    elif metric_value == "inst_top_keyword":
-        return bar_most_frequent_keyword_per_institution(top_n=10)
-
     elif metric_value == "inst_top_frascati":
-        return bar_most_frequent_frascati_per_institution(top_n=10)
-
-    elif metric_value == "inst_year_top_keyword":
-        if not institution_value or institution_value == "-":
-            fig = px.bar(
-                title="Select an institution to see its top keyword per year"
-            )
-            return style_bar_fig(fig)
-        return bar_top_keyword_per_year_for_institution(institution_value)
+        return bar_most_frequent_frascati_per_institution(top_n=6)
 
     fig = px.bar(title="No metric selected")
     return style_bar_fig(fig)
 
 
-# 3) Window 2 scatter
+# Window 2 – line plots
 @app.callback(
     Output("w2-graph", "figure"),
-    Input("w2-x", "value"),
-    Input("w2-y", "value"),
-    Input("w2-color", "value"),
+    Input("w2-metric", "value"),
 )
-def update_w2_graph(x_col, y_col, color_col):
-    if x_col is None or y_col is None:
-        return px.scatter(title="Select numeric columns for X and Y")
-    return make_scatter(df_raw, x_col, y_col, color_col)
+def update_w2_graph(metric_value):
+    if metric_value == "keyword":
+        return keywords_over_years_top6()
+    elif metric_value == "frascati":
+        return frascati_over_years_top6()
+    return keywords_over_years_top6()
 
 
-# 4) Window 3 scatter
+# Window 3 – pie charts
 @app.callback(
     Output("w3-graph", "figure"),
-    Input("w3-x", "value"),
-    Input("w3-y", "value"),
-    Input("w3-color", "value"),
+    Input("w3-metric", "value"),
 )
-def update_w3_graph(x_col, y_col, color_col):
-    if x_col is None or y_col is None:
-        return px.scatter(title="Select numeric columns for X and Y")
-    return make_scatter(df_raw, x_col, y_col, color_col)
+def update_w3_graph(metric_value):
+    return distribution_pie(metric_value)
 
 
 # --------------------------------------------------
