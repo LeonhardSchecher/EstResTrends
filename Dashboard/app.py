@@ -1,3 +1,4 @@
+# app.py
 from dash import Dash, dcc, html, Input, Output
 import plotly.express as px
 import pandas as pd
@@ -7,16 +8,16 @@ import pandas as pd
 # --------------------------------------------------
 
 # TODO: change this to the path of your JSON file
-DATA_PATH = "Dashboard\data2.json"
+DATA_PATH = "Data/data.json"
 
-# Read the JSON file into a DataFrame
+# Read JSON into a DataFrame
 df_raw = pd.read_json(DATA_PATH)
 
 # Ensure Year is numeric
 df_raw["Year"] = pd.to_numeric(df_raw["Year"], errors="coerce")
 
-# ---------- Prepare keyword-level data (for global keyword counts) ----------
-# Keywords is a list of strings per record, e.g. ['biomass', 'graphene', 'catalysis']
+# ---------- Prepare keyword-level data (global keyword counts) ----------
+# "Keywords" is a list of strings per record, e.g. ['biomass', 'graphene', 'catalysis']
 df_keywords_global = (
     df_raw[["Keywords"]]
     .explode("Keywords")
@@ -25,20 +26,32 @@ df_keywords_global = (
 )
 
 # ---------- Prepare institution-level data ----------
-# Institutions is a list of dicts per record.
+# "Institutions" is a list of dicts per record.
 # Example:
-# [{'BusinessRegNo': '74001073', 'Guid': '...', 'Name': '...', 'NameEng': '...'}, ...]
-df_inst_long = df_raw[["Year", "FrascatiClassification", "Keywords", "Institutions", "Source"]].copy()
+# [
+#   {
+#     'BusinessRegNo': '74001073',
+#     'Guid': 'edd8273f-2bf0-41f6-a4e8-167597dffdf5',
+#     'Name': '...',
+#     'NameEng': '...'
+#   },
+#   ...
+# ]
+df_inst_long = df_raw[
+    ["Year", "FrascatiClassification", "Keywords", "Institutions", "Source"]
+].copy()
 df_inst_long = df_inst_long.explode("Institutions")
 
-# Extract a clean institution name (we'll use NameEng; switch to 'Name' if you prefer)
-df_inst_long["InstitutionName"] = df_inst_long["Institutions"].apply(
-    lambda x: (
-        x.get("NameEng")
-        if isinstance(x, dict) and x.get("NameEng")
-        else (x.get("Name") if isinstance(x, dict) else None)
-    )
-)
+# Extract a clean institution name (prefer NameEng, fallback to Name)
+def extract_inst_name(inst):
+    if isinstance(inst, dict):
+        if inst.get("NameEng"):
+            return inst.get("NameEng")
+        return inst.get("Name")
+    return None
+
+
+df_inst_long["InstitutionName"] = df_inst_long["Institutions"].apply(extract_inst_name)
 df_inst_long = df_inst_long.dropna(subset=["InstitutionName"])
 
 # List of all institutions (for dropdown 2 in mode 7)
@@ -61,20 +74,24 @@ categorical_cols = [
     if c not in ["Institutions", "Keywords"]
 ]
 
-
 # --------------------------------------------------
-# Helper functions to build bar charts for window 1
+# Helper functions: bar charts for window 1
 # --------------------------------------------------
 
 def style_bar_fig(fig):
+    """Common styling for bar charts."""
     fig.update_layout(
         template="plotly_white",
         font=dict(family="Zilla Slab", color="black"),
         paper_bgcolor="white",
         plot_bgcolor="white",
-        margin=dict(l=40, r=20, t=40, b=100),
-        xaxis_tickangle=-45,
+        # More room on the left for long labels
+        margin=dict(l=220, r=40, t=60, b=40),
+        yaxis=dict(automargin=True),
+        xaxis=dict(automargin=True),
     )
+    fig.update_yaxes(tickfont=dict(size=10))
+    fig.update_xaxes(tickfont=dict(size=10))
     return fig
 
 
@@ -86,15 +103,17 @@ def bar_top_10_keywords():
         .reset_index()
     )
     counts.columns = ["Keyword", "count"]
+    counts = counts.sort_values("count")
 
     fig = px.bar(
         counts,
-        x="Keyword",
-        y="count",
+        x="count",
+        y="Keyword",
+        orientation="h",
         text="count",
         title="Top 10 most frequent keywords",
     )
-    fig.update_traces(textposition="outside")
+    fig.update_traces(textposition="outside", textfont=dict(size=10))
     return style_bar_fig(fig)
 
 
@@ -107,15 +126,17 @@ def bar_top_10_frascati():
         .reset_index()
     )
     counts.columns = ["FrascatiClassification", "count"]
+    counts = counts.sort_values("count")
 
     fig = px.bar(
         counts,
-        x="FrascatiClassification",
-        y="count",
+        x="count",
+        y="FrascatiClassification",
+        orientation="h",
         text="count",
         title="Top 10 most frequent Frascati classifications",
     )
-    fig.update_traces(textposition="outside")
+    fig.update_traces(textposition="outside", textfont=dict(size=10))
     return style_bar_fig(fig)
 
 
@@ -127,15 +148,17 @@ def bar_top_10_institutions():
         .reset_index()
     )
     counts.columns = ["InstitutionName", "count"]
+    counts = counts.sort_values("count")
 
     fig = px.bar(
         counts,
-        x="InstitutionName",
-        y="count",
+        x="count",
+        y="InstitutionName",
+        orientation="h",
         text="count",
         title="Top 10 most frequent institutions",
     )
-    fig.update_traces(textposition="outside")
+    fig.update_traces(textposition="outside", textfont=dict(size=10))
     return style_bar_fig(fig)
 
 
@@ -148,23 +171,25 @@ def bar_top_10_sources():
         .reset_index()
     )
     counts.columns = ["Source", "count"]
+    counts = counts.sort_values("count")
 
     fig = px.bar(
         counts,
-        x="Source",
-        y="count",
+        x="count",
+        y="Source",
+        orientation="h",
         text="count",
         title="Top 10 most frequent sources",
     )
-    fig.update_traces(textposition="outside")
+    fig.update_traces(textposition="outside", textfont=dict(size=10))
     return style_bar_fig(fig)
 
 
 def bar_most_frequent_keyword_per_institution(top_n=10):
     """
     For each institution, find its most frequent keyword.
-    Bars: institutions, y-axis: count of that keyword.
-    Text on bar: the keyword.
+    Bars: institutions (y), x-axis: count of that keyword.
+    Text on the bar: the keyword.
     """
     sub = df_inst_keywords_long.copy()
     if sub.empty:
@@ -177,26 +202,27 @@ def bar_most_frequent_keyword_per_institution(top_n=10):
         .reset_index(name="count")
     )
 
-    # For each institution, choose the keyword with max count
     idx = counts.groupby("InstitutionName")["count"].idxmax()
     top = counts.loc[idx].sort_values("count", ascending=False).head(top_n)
+    top = top.sort_values("count")
 
     fig = px.bar(
         top,
-        x="InstitutionName",
-        y="count",
-        text="Keyword",  # the keyword appears on the bar
+        x="count",
+        y="InstitutionName",
+        orientation="h",
+        text="Keyword",
         title="Most frequent keyword of each institution",
     )
-    fig.update_traces(textposition="outside")
+    fig.update_traces(textposition="outside", textfont=dict(size=9))
     return style_bar_fig(fig)
 
 
 def bar_most_frequent_frascati_per_institution(top_n=10):
     """
     For each institution, find its most frequent Frascati classification.
-    Bars: institutions, y-axis: count of that classification.
-    Text on bar: the classification label.
+    Bars: institutions (y), x-axis: count of that classification.
+    Text on the bar: the classification label.
     """
     sub = df_inst_long[["InstitutionName", "FrascatiClassification"]].dropna()
     if sub.empty:
@@ -211,15 +237,17 @@ def bar_most_frequent_frascati_per_institution(top_n=10):
 
     idx = counts.groupby("InstitutionName")["count"].idxmax()
     top = counts.loc[idx].sort_values("count", ascending=False).head(top_n)
+    top = top.sort_values("count")
 
     fig = px.bar(
         top,
-        x="InstitutionName",
-        y="count",
-        text="FrascatiClassification",  # label appears on the bar
+        x="count",
+        y="InstitutionName",
+        orientation="h",
+        text="FrascatiClassification",
         title="Most frequent Frascati classification of each institution",
     )
-    fig.update_traces(textposition="outside")
+    fig.update_traces(textposition="outside", textfont=dict(size=9))
     return style_bar_fig(fig)
 
 
@@ -243,7 +271,6 @@ def bar_top_keyword_per_year_for_institution(institution_name):
         .reset_index(name="count")
     )
 
-    # For each year, pick the keyword with max count
     idx = counts.groupby("Year")["count"].idxmax()
     top = counts.loc[idx].sort_values("Year")
 
@@ -254,12 +281,12 @@ def bar_top_keyword_per_year_for_institution(institution_name):
         text="Keyword",
         title=f"Top keyword of {institution_name} per year",
     )
-    fig.update_traces(textposition="outside")
+    fig.update_traces(textposition="outside", textfont=dict(size=9))
     return style_bar_fig(fig)
 
 
 # --------------------------------------------------
-# Generic scatter for windows 2 & 3 (unchanged idea)
+# Generic scatter for windows 2 & 3
 # --------------------------------------------------
 
 def make_scatter(data, x_col, y_col, color_col):
