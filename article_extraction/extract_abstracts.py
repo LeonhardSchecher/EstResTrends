@@ -7,10 +7,10 @@ from docx import Document
 from pypdf import PdfReader
 from pypdf.errors import DependencyError, PdfReadError
 
-# python3.11 -m pip install bs4 lxml pypdf python-docx cryptography
+# libraries needed: python3.11 -m pip install bs4 lxml pypdf python-docx cryptography
 
-MAX_PDF_PAGES = 3          # how many pages to scan from each PDF
-FALLBACK_WORDS = 400       # if no clear abstract/intro, take this many words
+MAX_PDF_PAGES = 3          
+FALLBACK_WORDS = 400       
 INPUT_EXTS = {".pdf", ".docx", ".html", ".htm"}
 INPUT_DIR = r"C:\Users\ekkeg\data"      
 OUTPUT_DIR = r"C:\Users\ekkeg\SA_Projekt\EstResTrends\article_output"  
@@ -24,10 +24,8 @@ def extract_abstract_or_intro(text: str) -> str:
     if not text:
         return ""
 
-    # Normalize line breaks
+    # Normalize line breaks an collapse multiple newlines to help regex
     t = text.replace("\r", "\n")
-
-    # Collapse multiple newlines to help regex
     t = re.sub(r"\n{2,}", "\n\n", t)
 
     # 1. Try ABSTRACT section

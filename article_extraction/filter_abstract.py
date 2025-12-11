@@ -11,11 +11,11 @@ client = AzureOpenAI(
     azure_endpoint="https://tu-openai-api-management.azure-api.net/oltatkull/openai/deployments/IDS2025-Gross-gpt-4o-mini/chat/completions?api-version=2024-12-01-preview"
 )
 
-# ---------- CONFIG ----------
+# CONFIG 
 INPUT_JSONL  = r"article_extraction\ar_clean_rest.jsonl"
 OUTPUT_JSONL = r"article_extraction\articles_filtered.jsonl"
 MODEL_NAME   = "IDS2025-Gross-gpt-4o-mini"
-# ----------------------------
+
 
 INSTRUCTIONS = """
 You are a filter for scientific article snippets.

@@ -2,17 +2,9 @@ from dash import Dash, dcc, html, Input, Output
 import plotly.express as px
 import pandas as pd
 
-# --------------------------------------------------
-# Data loading and preparation
-# --------------------------------------------------
-
-# TODO: change this to the path of your JSON file
+# Data
 DATA_PATH = "Data/data.json"
-
-# Read JSON into a DataFrame
 df_raw = pd.read_json(DATA_PATH)
-
-# Ensure Year is numeric
 df_raw["Year"] = pd.to_numeric(df_raw["Year"], errors="coerce")
 
 # Global min/max years (for x-axis range on line charts)
@@ -23,7 +15,6 @@ if not _year_nonnull.empty:
 else:
     YEAR_MIN = YEAR_MAX = None
 
-# ---------- Keyword-level data ----------
 # Keywords is a list of strings per record
 df_keywords_global = (
     df_raw[["Keywords"]]
@@ -41,7 +32,7 @@ df_keywords_year = (
 )
 df_keywords_year["YearInt"] = df_keywords_year["Year"].astype(int)
 
-# ---------- Institution-level data ----------
+# Institutions data 
 df_inst_long = df_raw[
     ["Year", "FrascatiClassification", "Keywords", "Institutions", "Source"]
 ].copy()
@@ -64,9 +55,7 @@ df_fras_year = df_raw[["Year", "FrascatiClassification"]].dropna()
 df_fras_year = df_fras_year[df_fras_year["Year"].notna()]
 df_fras_year["YearInt"] = df_fras_year["Year"].astype(int)
 
-# --------------------------------------------------
-# Helper functions: bar charts (Window 1)
-# --------------------------------------------------
+# Bar charts (Window 1)
 
 def style_bar_fig(fig):
     """Common styling for bar charts with plenty of space."""
@@ -163,9 +152,7 @@ def bar_most_frequent_frascati_per_institution(top_n=6):
     return style_bar_fig(fig)
 
 
-# --------------------------------------------------
-# Line charts (Window 2) – keyword (default) & Frascati
-# --------------------------------------------------
+# Line charts (Window 2) 
 
 def _apply_year_axis(fig):
     """Apply global year range and integer ticks to a line chart."""
@@ -263,11 +250,7 @@ def frascati_over_years_top6():
     )
     return _apply_year_axis(fig)
 
-
-# --------------------------------------------------
 # Pie charts (Window 3)
-# --------------------------------------------------
-
 def make_pie_from_series(series, title, top_n=10):
     s = series.dropna()
     if s.empty:
@@ -308,7 +291,6 @@ def make_pie_from_series(series, title, top_n=10):
 
 def distribution_pie(metric_value: str):
     """Return the appropriate pie chart for window 3."""
-    # Default & 'frascati' → Frascati frequency
     if metric_value in (None, "frascati"):
         return make_pie_from_series(
             df_raw["FrascatiClassification"], "Frascati frequency"
@@ -323,10 +305,7 @@ def distribution_pie(metric_value: str):
         df_raw["FrascatiClassification"], "Frascati frequency"
     )
 
-
-# --------------------------------------------------
 # Dash app setup
-# --------------------------------------------------
 
 external_stylesheets = [
     "https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@300;400;500;700&display=swap"
@@ -335,7 +314,7 @@ external_stylesheets = [
 app = Dash(__name__, external_stylesheets=external_stylesheets)
 app.title = "Project Dashboard"
 
-# Options for Window 1 (bar plots)
+# Window 1 
 METRIC_OPTIONS_W1 = [
     {"label": "Top 10 most frequent keywords", "value": "top_keywords"},
     {"label": "Top 10 most frequent sources", "value": "top_sources"},
@@ -345,22 +324,20 @@ METRIC_OPTIONS_W1 = [
     },
 ]
 
-# Options for Window 2 (line plots)
+# Window 2 
 METRIC_OPTIONS_W2 = [
     {"label": "Top 6 keywords over years", "value": "keyword"},
     {"label": "Top 6 Frascati classifications over years", "value": "frascati"},
 ]
 
-# Options for Window 3 (pie charts) – ONLY frascati & institutions
+# Window 3 
 METRIC_OPTIONS_W3 = [
     {"label": "Frascati frequency", "value": "frascati"},
     {"label": "Institutions frequency", "value": "institution"},
 ]
 
 
-# --------------------------------------------------
 # Layout blocks
-# --------------------------------------------------
 
 def make_first_plot_window():
     return html.Div(
@@ -378,11 +355,11 @@ def make_first_plot_window():
                 style={"width": "25%", "minWidth": "260px"},
                 children=[
                     html.H2(
-                        "Plot Window 1 – Overview",
+                        "Frequency bar plots",
                         style={"fontFamily": "Zilla Slab, serif", "marginBottom": "12px"},
                     ),
                     html.H3(
-                        "Controls",
+                        "Choices",
                         style={
                             "fontFamily": "Zilla Slab, serif",
                             "fontSize": "18px",
@@ -404,7 +381,7 @@ def make_first_plot_window():
                 children=[
                     dcc.Graph(
                         id="w1-graph",
-                        style={"height": "600px"},  # fixed tall height
+                        style={"height": "600px"},  
                         config={"modeBarButtonsToRemove": ["select2d", "lasso2d"]},
                     )
                 ],
@@ -429,11 +406,11 @@ def make_second_plot_window():
                 style={"width": "25%", "minWidth": "260px"},
                 children=[
                     html.H2(
-                        "Plot Window 2 – Trends over years",
+                        "Trends over years",
                         style={"fontFamily": "Zilla Slab, serif", "marginBottom": "12px"},
                     ),
                     html.H3(
-                        "Controls",
+                        "Choices",
                         style={
                             "fontFamily": "Zilla Slab, serif",
                             "fontSize": "18px",
@@ -480,11 +457,11 @@ def make_third_plot_window():
                 style={"width": "25%", "minWidth": "260px"},
                 children=[
                     html.H2(
-                        "Plot Window 3 – Distribution",
+                        "Distributions",
                         style={"fontFamily": "Zilla Slab, serif", "marginBottom": "12px"},
                     ),
                     html.H3(
-                        "Controls",
+                        "Choices",
                         style={
                             "fontFamily": "Zilla Slab, serif",
                             "fontSize": "18px",
@@ -514,9 +491,7 @@ def make_third_plot_window():
     )
 
 
-# --------------------------------------------------
 # App layout
-# --------------------------------------------------
 
 app.layout = html.Div(
     style={
@@ -552,6 +527,8 @@ app.layout = html.Div(
                 ),
                 html.P(
                     """
+                    The aim of this project was to gain an overview of the most popular trends in Estonian scientific research over the last 5 years. 
+                    For this, we used data from ETIS (Estonian Research Information System) and the data extraction was done with the help of a LLM.
                     The plots below demonstrate different aspects of the data we extracted. 
                     """,
                     style={
@@ -569,12 +546,9 @@ app.layout = html.Div(
     ],
 )
 
-
-# --------------------------------------------------
 # Callbacks
-# --------------------------------------------------
 
-# Window 1 – bar plots
+# Window 1 
 @app.callback(
     Output("w1-graph", "figure"),
     Input("w1-metric", "value"),
@@ -591,7 +565,7 @@ def update_w1_graph(metric_value):
     return style_bar_fig(fig)
 
 
-# Window 2 – line plots
+# Window 2
 @app.callback(
     Output("w2-graph", "figure"),
     Input("w2-metric", "value"),
@@ -604,18 +578,13 @@ def update_w2_graph(metric_value):
     return keywords_over_years_top6()
 
 
-# Window 3 – pie charts
+# Window 3
 @app.callback(
     Output("w3-graph", "figure"),
     Input("w3-metric", "value"),
 )
 def update_w3_graph(metric_value):
     return distribution_pie(metric_value)
-
-
-# --------------------------------------------------
-# Entry point
-# --------------------------------------------------
 
 if __name__ == "__main__":
     app.run(debug=True)
