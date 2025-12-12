@@ -33,7 +33,7 @@ Contains the poster image file and report as a PDF
 scrape.py tries to download articles or the introduction page. The links are taken from etis.
 etis_api.py downloads the data from etis in .json format. This data contains atleast the article's title.
 
-test.ipynb - Test file, trying out the GPT API
+## test.ipynb - Test file trying out the GPT API
 
 
 
